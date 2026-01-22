@@ -1,15 +1,16 @@
 # semantic.py
 from parsernew import (
-    BlockNode, VarDeclNode, VarNode, AssignNode, ProcedureNode, ForNode
+    BlockNode, MultiVarDeclNode, VarNode, AssignNode, ArrayAssignNode, 
+    ArrayAccessNode, ProcedureNode, FunctionNode, ForNode, StringNode, BoolNode
 )
 from errors import SemanticError
 
 class SymbolTable:
     def __init__(self):
-        self.symbols = {}  # {name: type}
+        self.symbols = {}  # {name: (type, is_array, array_size)}
 
-    def define(self, name, type_):
-        self.symbols[name] = type_
+    def define(self, name, type_, is_array=False, array_size=None):
+        self.symbols[name] = (type_, is_array, array_size)
 
     def lookup(self, name):
         return self.symbols.get(name)
@@ -22,6 +23,7 @@ class SemanticAnalyzer:
     Проходит по AST и проверяет семантические правила:
     1. Переменные должны быть объявлены перед использованием.
     2. Нельзя объявлять переменную дважды.
+    3. Проверка типов для массивов и функций.
     """
     def __init__(self):
         self.symbol_table = SymbolTable()
@@ -32,40 +34,88 @@ class SemanticAnalyzer:
         method(node)
 
     def generic_visit(self, node):
-        # Если у узла есть дочерние элементы, посещаем их,
-        # но так как структура AST разнородна, придется делать проверки
-        # Для простоты пропишем основные узлы
         pass
 
     def visit_BlockNode(self, node):
         for stmt in node.statements:
             self.visit(stmt)
 
-    def visit_VarDeclNode(self, node):
-        # Проверка: переменная уже есть?
-        if self.symbol_table.is_defined(node.name):
-            raise SemanticError(
-                (node.token.lineno, node.token.column),
-                f"Variable '{node.name}' is already declared"
-            )
-        self.symbol_table.define(node.name, node.type_)
+    def visit_MultiVarDeclNode(self, node):
+        # Проверка: переменные уже есть?
+        for name in node.var_names:
+            if self.symbol_table.is_defined(name):
+                raise SemanticError(
+                    (node.token.lineno, node.token.column),
+                    f"Variable '{name}' is already declared"
+                )
+            self.symbol_table.define(name, node.type_, node.is_array, node.array_size)
 
     def visit_AssignNode(self, node):
         # Проверка: переменная объявлена?
-        if not self.symbol_table.is_defined(node.name):
+        var_info = self.symbol_table.lookup(node.name)
+        if not var_info:
+            # Это может быть присваивание результата функции
+            # В Pascal: function_name := value
+            # Проверим, есть ли такая функция в текущем контексте
+            # Пока что пропускаем проверку для имен функций
+            pass
+        else:
+            # Проверка: не присваиваем массиву как целому
+            type_, is_array, _ = var_info
+            if is_array:
+                raise SemanticError(
+                    (node.token.lineno, node.token.column),
+                    f"Array '{node.name}' requires index for assignment"
+                )
+        self.visit(node.expr)
+
+    def visit_ArrayAssignNode(self, node):
+        # Проверка: массив объявлен?
+        var_info = self.symbol_table.lookup(node.name)
+        if not var_info:
             raise SemanticError(
                 (node.token.lineno, node.token.column),
-                f"Variable '{node.name}' not declared (assignment)"
+                f"Array '{node.name}' not declared"
             )
+        type_, is_array, array_size = var_info
+        if not is_array:
+            raise SemanticError(
+                (node.token.lineno, node.token.column),
+                f"Variable '{node.name}' is not an array"
+            )
+        self.visit(node.index)
         self.visit(node.expr)
 
     def visit_VarNode(self, node):
         # Проверка использования переменной в выражении
-        if not self.symbol_table.is_defined(node.name):
+        var_info = self.symbol_table.lookup(node.name)
+        if not var_info:
             raise SemanticError(
                 (node.token.lineno, node.token.column),
                 f"Variable '{node.name}' not declared (usage)"
             )
+        type_, is_array, _ = var_info
+        if is_array:
+            raise SemanticError(
+                (node.token.lineno, node.token.column),
+                f"Array '{node.name}' requires index for access"
+            )
+
+    def visit_ArrayAccessNode(self, node):
+        # Проверка: массив объявлен?
+        var_info = self.symbol_table.lookup(node.name)
+        if not var_info:
+            raise SemanticError(
+                (node.token.lineno, node.token.column),
+                f"Array '{node.name}' not declared"
+            )
+        type_, is_array, array_size = var_info
+        if not is_array:
+            raise SemanticError(
+                (node.token.lineno, node.token.column),
+                f"Variable '{node.name}' is not an array"
+            )
+        self.visit(node.index)
 
     def visit_BinOpNode(self, node):
         self.visit(node.left)
@@ -85,8 +135,7 @@ class SemanticAnalyzer:
         self.visit(node.body)
     
     def visit_ForNode(self, node):
-        # Переменная счетчика должна быть объявлена (или объявляется тут?
-        # В Pascal счетчик обычно должен быть объявлен в var. Проверим это.
+        # Переменная счетчика должна быть объявлена
         if not self.symbol_table.is_defined(node.var):
             raise SemanticError(
                 (node.token.lineno, node.token.column),
@@ -103,20 +152,44 @@ class SemanticAnalyzer:
                 self.visit(arg)
             return
         
-        # Для пользовательских процедур проверка декларации
-        # (В текущем примере процедуры не добавляются в таблицу символов, но можно добавить)
-        # Пока просто проверяем аргументы
+        # Для пользовательских процедур проверка аргументов
         for arg in node.args:
             self.visit(arg)
 
     def visit_ProcedureNode(self, node):
-        # Здесь нужно создавать новую область видимости (Scope)
-        # Но для простоты примера добавим параметры в текущую (глобальную) или временную
-        # Упрощенно: считаем параметры объявленными переменными
+        # Создаем новую область видимости для параметров
+        old_symbols = self.symbol_table.symbols.copy()
+        
+        # Добавляем параметры в таблицу символов
         for param_name, param_type in node.params:
-             self.symbol_table.define(param_name, param_type)
+            self.symbol_table.define(param_name, param_type)
         
         self.visit(node.body)
+        
+        # Восстанавливаем старую таблицу символов
+        self.symbol_table.symbols = old_symbols
+
+    def visit_FunctionNode(self, node):
+        # Создаем новую область видимости для параметров
+        old_symbols = self.symbol_table.symbols.copy()
+        
+        # Добавляем параметры в таблицу символов
+        for param_name, param_type in node.params:
+            self.symbol_table.define(param_name, param_type)
+        
+        self.visit(node.body)
+        
+        # Восстанавливаем старую таблицу символов
+        self.symbol_table.symbols = old_symbols
 
     def visit_NumberNode(self, node):
+        pass
+
+    def visit_StringNode(self, node):
+        pass
+
+    def visit_BoolNode(self, node):
+        pass
+
+    def visit_CommentNode(self, node):
         pass

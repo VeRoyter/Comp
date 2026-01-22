@@ -1,0 +1,105 @@
+var
+  s1, s2: string;
+  i: integer;
+  flag: boolean;
+
+procedure PrintMessage(msg: string);
+begin
+  writeln(msg);
+end;
+
+function MakeGreeting(name: string): string;
+begin
+  MakeGreeting := 'Hello, ' + name;
+end;
+
+begin
+  s1 := 'World';
+  s2 := MakeGreeting(s1);
+
+  writeln(s2);
+//comment
+{comment}
+  i := 3;
+  flag := true;
+
+  if flag then
+    PrintMessage('Flag is true');
+
+  while i > 0 do
+  begin
+    writeln('Count = ' + ' ' + 'step');
+    i := i - 1;
+  end;
+end.
+
+
+
+
+var
+  a, b: string;
+begin
+  a := 'cat';
+  b := 'dog';
+
+  if a = b then
+    writeln('equal')
+  else
+    writeln('not equal');
+end.
+
+
+
+
+
+begin
+  writeln('Hello', ' ', 'world');
+end.
+
+
+
+
+
+
+var
+  words: array[0..2] of string;
+  i: integer;
+begin
+  words[0] := 'one';
+  words[1] := 'two';
+  words[2] := 'three';
+
+  i := 0;
+  while i < 3 do
+  begin
+    writeln(words[i]);
+    i := i + 1;
+  end;
+end.
+
+
+
+
+
+function getWord(i: integer): string;
+begin
+  if i = 1 then
+    getWord := 'one'
+  else
+    getWord := 'other';
+end;
+var a: string;
+begin
+a := getWord(1);
+  writeln(a);
+end.
+
+
+
+
+
+
+
+
+
+
